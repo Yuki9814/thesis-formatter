@@ -5,11 +5,11 @@ import json
 import sys
 from pathlib import Path
 
-from app.services import format_documents, inspect_documents, validation_result_for_error
+from app.services import doctor_check, format_documents, inspect_documents, validation_result_for_error
 from core.docx_loader import DocxError
 from core.formatter_engine import MappingConsistencyError, MappingPolicyError
-from core.report_generator import write_validation_report
-from models.io import write_model
+from core.report_generator import write_delivery_checklist, write_validation_report
+from models.io import model_to_json, write_model
 from pydantic import ValidationError
 
 
@@ -50,6 +50,9 @@ def _format(args: argparse.Namespace) -> int:
         report.parent.mkdir(parents=True, exist_ok=True)
         write_validation_report(report, result)
         write_model(report.parent / "validation_result.json", result)
+        if result.readiness:
+            write_model(report.parent / "delivery_checklist.json", result.readiness)
+        write_delivery_checklist(report.parent / "delivery_checklist.html", result)
         print(f"Formatting failed: {exc}", file=sys.stderr)
         print(f"Failure report written to: {Path(args.report).resolve()}", file=sys.stderr)
         if isinstance(exc, (MappingPolicyError, MappingConsistencyError)):
@@ -59,7 +62,22 @@ def _format(args: argparse.Namespace) -> int:
         return EXIT_INTERNAL_ERROR
     print(f"Output written to: {Path(args.out).resolve()}")
     print(f"Validation report written to: {Path(args.report).resolve()}")
+    print(f"Delivery checklist written to: {(Path(args.report).parent / 'delivery_checklist.html').resolve()}")
     return EXIT_SUCCESS if result.passed else EXIT_VALIDATION_OR_MAPPING_FAILURE
+
+
+def _doctor(args: argparse.Namespace) -> int:
+    result = doctor_check(args.template, args.content, args.out_dir, require_gui=args.require_gui)
+    if args.json:
+        print(model_to_json(result))
+    else:
+        print("Doctor summary:", result.summary)
+        for check in result.checks:
+            line = f"[{check.status}] {check.name}: {check.message}"
+            print(line)
+            if check.suggested_fix:
+                print(f"  fix: {check.suggested_fix}")
+    return EXIT_SUCCESS if result.passed else EXIT_INPUT_OR_FILE_ERROR
 
 
 def _gui(_: argparse.Namespace) -> int:
@@ -88,6 +106,14 @@ def build_parser() -> argparse.ArgumentParser:
     format_parser.add_argument("--strict", action="store_true")
     format_parser.add_argument("--debug-dir")
     format_parser.set_defaults(func=_format)
+
+    doctor_parser = sub.add_parser("doctor", help="Preflight dependencies, inputs, and output location.")
+    doctor_parser.add_argument("--template")
+    doctor_parser.add_argument("--content")
+    doctor_parser.add_argument("--out-dir")
+    doctor_parser.add_argument("--require-gui", action="store_true")
+    doctor_parser.add_argument("--json", action="store_true")
+    doctor_parser.set_defaults(func=_doctor)
 
     gui_parser = sub.add_parser("gui", help="Launch PySide6 GUI.")
     gui_parser.set_defaults(func=_gui)

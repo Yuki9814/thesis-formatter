@@ -7,11 +7,14 @@ template/reference.docx ─┐
                          ├─ inspect ─ format_profile.json
 content.docx ────────────┘           ├─ content_structure.json
                                      ├─ mapping.generated.json
+                                     ├─ readiness_result.json
                                      └─ inspection_report.html
 
 mapping.generated.json + content.docx + template/reference.docx
   └─ format ─ output.docx
              ├─ validation_result.json
+             ├─ delivery_checklist.json
+             ├─ delivery_checklist.html
              └─ validation_report.html
 ```
 
@@ -21,6 +24,7 @@ mapping.generated.json + content.docx + template/reference.docx
 - `core/format_extractor.py`: extracts styles, page setup, rFonts, section metadata, template quality, and advanced feature indicators from the template/reference document.
 - `core/content_analyzer.py`: classifies paragraphs into roles such as `heading_1`, `body`, `figure_caption`, and `reference_item` using deterministic rules.
 - `core/style_mapper.py`: builds editable role-to-style mappings from rules and style heuristics.
+- `core/readiness.py`: turns template quality, mapping confidence, advanced content, and validation issues into delivery status, score, risk, blockers, review items, and next actions.
 - `core/formatter_engine.py`: copies the content document, imports/merges template styles, applies mapped `style_id` values, applies safe page setup, and writes a validated temporary `.docx` before final output.
 - `core/validator.py`: validates the generated document against the extracted profile and mapping.
 - `core/report_generator.py`: writes human-readable inspection and validation HTML reports.
@@ -66,4 +70,3 @@ The safe contract is: AI may suggest roles or rules as JSON; deterministic code 
 - detect repair prompts or layout failures
 
 Mac development remains useful for package-level `.docx` generation and validation, but final layout authority should be Microsoft Word, preferably Windows Word in later stages.
-

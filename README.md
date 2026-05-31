@@ -13,7 +13,10 @@ Thesis Formatter 是一个确定性 `.docx` 论文格式转移与校验工具。
 - `.docx` 输入和输出。
 - `inspect` 预检查流程：提取模板格式、分析内容结构、生成可编辑映射和 HTML 检查报告。
 - `format` 格式化流程：读取映射文件，生成新的 `.docx` 和校验报告。
+- 交付 readiness：在检查和格式化阶段给出“可交付 / 需复核 / 不建议交付”、评分、阻塞项、人工复核项和下一步动作。
+- `doctor` 预检流程：检查依赖、输入 `.docx`、输出目录和 Word 复核环境。
 - PySide6 GUI：文件选择、检查预演、映射编辑、执行格式化、报告查看。
+- GUI 五步主流程：选择文件、模板体检、映射确认、生成文档、交付复核。
 - 使用 `style_id` 执行样式应用，报告中展示 `style_name`。
 - 读取/保留中文字体相关 `rFonts` 字段：`ascii`、`hAnsi`、`eastAsia`、`cs`。
 - 保守清理段落级直接格式，默认保留字符级直接格式。
@@ -96,6 +99,12 @@ python scripts/create_examples.py
 - `examples/template_basic.docx`
 - `examples/content_basic.docx`
 
+Step 0：可选，运行本地预检。
+
+```bash
+python -m app.main doctor --template examples/template_basic.docx --content examples/content_basic.docx --out-dir workdir
+```
+
 Step 1：运行检查/预演。
 
 ```bash
@@ -118,6 +127,7 @@ Step 4：打开结果并复核。
 
 - `workdir/output.docx`：用 Microsoft Word 打开，确认没有修复提示。
 - `workdir/validation_report.html`：查看通过项、提示、警告和错误。
+- `workdir/delivery_checklist.html`：按交付清单做 Word 内最终复核。
 
 一条命令运行 smoke test：
 
@@ -141,6 +151,25 @@ Options:
 - `--rules`：可选规则文件。MVP 中仅 `style_map` 会覆盖自动样式映射。
 
 `inspect` 当前没有 `--strict` 或 `--debug-dir`。
+
+### doctor
+
+```bash
+python -m app.main doctor [--template template.docx] [--content content.docx] [--out-dir workdir] [--require-gui] [--json]
+```
+
+Options:
+
+- `--template`：可选，检查模板或样例文件是否是有效 `.docx`。
+- `--content`：可选，检查内容文件是否是有效 `.docx`。
+- `--out-dir`：可选，检查输出目录或其父目录是否可写。
+- `--require-gui`：把 PySide6 缺失视为错误；默认只作为提示。
+- `--json`：输出机器可读 JSON。
+
+Exit codes:
+
+- `0`：没有 error。warning 仍会显示，但不阻塞。
+- `2`：存在输入、依赖或输出目录错误。
 
 ### format
 
@@ -279,6 +308,7 @@ formatting:
 - `format_profile.json`：模板/样例格式档案，包括样式、页面设置、`rFonts`、模板质量、复杂特性检测。
 - `content_structure.json`：内容文档段落结构，包括段落索引、文本预览、识别角色、当前样式、置信度。
 - `mapping.generated.json`：可编辑的角色到目标样式映射。
+- `readiness_result.json`：检查阶段交付风险结论，包括评分、阻塞项、人工复核项和下一步动作。
 - `inspection_report.html`：检查报告，适合人工确认模板质量和映射结果。
 
 ### format outputs
@@ -286,8 +316,16 @@ formatting:
 - 输出 `.docx`：新的格式化文档。输入文件不会被覆盖。
 - `validation_result.json`：机器可读校验结果。
 - `validation_report.html`：人工可读校验报告。
+- `delivery_checklist.json`：机器可读交付检查清单。
+- `delivery_checklist.html`：人工可读交付检查清单，重点提示 Word 内复核项。
 
 ## Validation Report
+
+报告顶部会先显示交付 readiness：
+
+- `可交付`：没有阻塞项，仍建议保留报告并完成 Word 内目检。
+- `需复核`：输出可继续处理，但存在低置信度映射、复杂字段、模板质量或直接格式等风险。
+- `不建议交付`：存在 error 或缺失必需映射，需要修复后重跑。
 
 报告严重级别：
 
@@ -414,7 +452,9 @@ No lint or type-check tool is configured yet. Add `ruff`, `mypy`, or `pyright` b
 
 - [ ] `inspect` command runs successfully.
 - [ ] `mapping.generated.json` is produced and editable.
+- [ ] `readiness_result.json` explains delivery risk and next actions.
 - [ ] `format` command produces `output.docx`.
+- [ ] `delivery_checklist.html` lists Word review items before final handoff.
 - [ ] `output.docx` opens in Microsoft Word without a repair prompt.
 - [ ] Page size and margins match the template.
 - [ ] Heading/body/caption/reference styles are applied.
@@ -469,4 +509,3 @@ pip install -e ".[gui]"
 
 - [Architecture](docs/architecture.md)
 - [Examples](examples/README.md)
-

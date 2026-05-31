@@ -7,6 +7,7 @@ from models import (
     ContentStructure,
     FormatProfile,
     MappingEntry,
+    ReadinessResult,
     StyleMapping,
     TemplateQuality,
     ValidationIssue,
@@ -38,9 +39,17 @@ def test_report_generator_html_escaping(tmp_path: Path) -> None:
             )
         ]
     )
+    readiness = ReadinessResult(
+        status=danger,
+        score=12,
+        risk_level="high",
+        blocking_items=[danger],
+        manual_review_items=[danger],
+        next_actions=[danger],
+    )
 
     inspection_path = tmp_path / "inspection.html"
-    write_inspection_report(inspection_path, profile, structure, mapping)
+    write_inspection_report(inspection_path, profile, structure, mapping, readiness)
     inspection = inspection_path.read_text(encoding="utf-8")
 
     assert danger not in inspection
@@ -50,6 +59,7 @@ def test_report_generator_html_escaping(tmp_path: Path) -> None:
         output_path=danger,
         passed=False,
         summary={danger: 1},
+        readiness=readiness,
         issues=[
             ValidationIssue(
                 severity=danger,

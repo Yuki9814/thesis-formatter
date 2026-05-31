@@ -20,11 +20,14 @@ from .xml_utils import (
 )
 
 
-HEADING_3_RE = re.compile(r"^\d+(?:\.\d+){2,}\s+.+")
-HEADING_2_RE = re.compile(r"^\d+\.\d+\s+.+")
-HEADING_1_RE = re.compile(r"^(?:\d+|第[一二三四五六七八九十百千万0-9]+[章节])[\s、.．].+")
-FIGURE_RE = re.compile(r"^(图|Figure)\s*\d+[-.\d]*")
-TABLE_RE = re.compile(r"^(表|Table)\s*\d+[-.\d]*")
+CN_NUM = "一二三四五六七八九十百千万零〇两0-9"
+HEADING_3_RE = re.compile(r"^\d+(?:\.\d+){2,}(?:\s+|[、.．])?.+")
+HEADING_2_RE = re.compile(r"^(?:\d+\.\d+|（[" + CN_NUM + r"]+）|\([" + CN_NUM + r"]+\))(?:\s+|[、.．])?.+")
+HEADING_1_RE = re.compile(
+    r"^(?:第[" + CN_NUM + r"]+[章节篇部]\s*.+|\d+[\s、.．:：].+|[" + CN_NUM + r"]+[\s、.．:：].+)"
+)
+FIGURE_RE = re.compile(r"^(图|Figure|Fig\.)\s*[" + CN_NUM + r"]+[-.\d" + CN_NUM + r"]*\s*[：:、\s]?.*")
+TABLE_RE = re.compile(r"^(表|Table)\s*[" + CN_NUM + r"]+[-.\d" + CN_NUM + r"]*\s*[：:、\s]?.*")
 REFERENCE_RE = re.compile(r"^(\[\d+\]|\d+\.)\s*.+")
 
 
@@ -33,9 +36,10 @@ def _classify(text: str, paragraph, in_references: bool) -> Tuple[str, float, bo
     if not stripped:
         return "body", 0.2, in_references
     compact = re.sub(r"\s+", " ", stripped)
-    if compact in {"目录", "Contents", "Table of Contents"}:
+    compact_no_space = re.sub(r"\s+", "", compact)
+    if compact in {"目录", "Contents", "Table of Contents"} or compact_no_space in {"目录", "目次"}:
         return "toc", 0.95, False
-    if compact in {"参考文献", "References", "Bibliography"}:
+    if compact.rstrip(":：") in {"参考文献", "References", "Bibliography"}:
         return "reference_heading", 0.95, True
     if compact.startswith(("摘要", "Abstract")):
         return "abstract", 0.9, False
@@ -111,4 +115,3 @@ def analyze_content(content_path: str | Path) -> ContentStructure:
         role_counts=dict(counts),
         advanced_features=_advanced_features(path, document_root),
     )
-

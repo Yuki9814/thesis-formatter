@@ -14,7 +14,7 @@ from core.content_analyzer import analyze_content
 from core.format_extractor import extract_format_profile
 from core.formatter_engine import MappingPolicyError
 from core.docx_loader import DocxError, assert_output_not_input, read_part, validate_docx_path
-from models import StyleMapping
+from models import ReadinessResult, StyleMapping
 from models.io import load_model, write_model
 
 
@@ -34,6 +34,11 @@ def test_inspect_outputs_without_modifying_inputs(simple_template: Path, simple_
     assert any(style.style_id and style.style_name for style in profile.styles)
     assert structure.role_counts["heading_1"] == 1
     assert any(entry.role == "heading_1" and entry.style_id for entry in mapping.entries)
+    readiness = load_model(out_dir / "readiness_result.json", ReadinessResult)
+    assert readiness.score >= 0
+    assert readiness.status in {"可交付", "需复核", "不建议交付"}
+    assert any(entry.sample_texts for entry in mapping.entries)
+    assert any(entry.candidate_styles for entry in mapping.entries)
 
 
 def test_format_uses_editable_mapping(simple_template: Path, simple_content: Path, tmp_path: Path) -> None:
@@ -52,7 +57,10 @@ def test_format_uses_editable_mapping(simple_template: Path, simple_content: Pat
     assert output.exists()
     assert report.exists()
     assert (out_dir / "validation_result.json").exists()
+    assert (out_dir / "delivery_checklist.json").exists()
+    assert (out_dir / "delivery_checklist.html").exists()
     assert result.summary["error"] == 0
+    assert result.readiness is not None
 
 
 def test_strict_blocks_low_confidence_mapping(simple_template: Path, simple_content: Path, tmp_path: Path) -> None:
@@ -91,6 +99,42 @@ def test_advanced_content_detection(advanced_content: Path) -> None:
     assert features["has_footnotes"]
     assert features["has_endnotes"]
     assert features["media_part_count"] >= 1
+
+
+def test_chinese_thesis_role_detection(tmp_path: Path) -> None:
+    from docx import Document
+
+    path = tmp_path / "chinese_roles.docx"
+    doc = Document()
+    for text in [
+        "目 录",
+        "摘要",
+        "关键词：格式；论文",
+        "第1章 绪论",
+        "一、研究背景",
+        "（一）理论基础",
+        "1.1.1 细分问题",
+        "图1-1 系统流程图",
+        "表一 样本表",
+        "参考文献：",
+        "[1] Zhang S. A reference item.",
+        "附录A 调查问卷",
+    ]:
+        doc.add_paragraph(text)
+    doc.save(path)
+
+    structure = analyze_content(path)
+    assert structure.blocks[0].role == "toc"
+    assert structure.role_counts["abstract"] == 1
+    assert structure.role_counts["keywords"] == 1
+    assert structure.role_counts["heading_1"] >= 2
+    assert structure.role_counts["heading_2"] >= 1
+    assert structure.role_counts["heading_3"] == 1
+    assert structure.role_counts["figure_caption"] == 1
+    assert structure.role_counts["table_caption"] == 1
+    assert structure.role_counts["reference_heading"] == 1
+    assert structure.role_counts["reference_item"] == 1
+    assert structure.role_counts["appendix"] == 1
 
 
 def test_cli_inspect_and_format(simple_template: Path, table_content: Path, tmp_path: Path) -> None:
@@ -152,6 +196,31 @@ def test_cli_exit_code_for_invalid_input(tmp_path: Path) -> None:
         capture_output=True,
     )
     assert result.returncode == 2
+
+
+def test_cli_doctor_reports_bad_inputs(tmp_path: Path) -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "app.main",
+            "doctor",
+            "--template",
+            str(tmp_path / "missing.docx"),
+            "--content",
+            str(tmp_path / "missing2.docx"),
+            "--out-dir",
+            str(tmp_path),
+            "--json",
+        ],
+        cwd=Path.cwd(),
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode == 2
+    data = json.loads(result.stdout)
+    assert data["passed"] is False
+    assert data["summary"]["error"] >= 2
 
 
 def test_cli_exit_code_for_strict_mapping_failure(simple_template: Path, simple_content: Path, tmp_path: Path) -> None:
@@ -344,3 +413,23 @@ def test_cli_format_error_with_missing_report_parent_dir(tmp_path: Path, simple_
     data = json.loads(result_json.read_text(encoding="utf-8"))
     assert data["passed"] is False
     assert any("JSONDecodeError" in (iss.get("message", "") or "") for iss in data.get("issues", []))
+
+
+def test_format_preserves_complex_content_parts(simple_template: Path, advanced_content: Path, tmp_path: Path) -> None:
+    out_dir = tmp_path / "advanced_workdir"
+    inspect_documents(simple_template, advanced_content, out_dir)
+    output = tmp_path / "advanced_output.docx"
+    result = format_documents(
+        simple_template,
+        advanced_content,
+        out_dir / "mapping.generated.json",
+        output,
+        out_dir / "validation_report.html",
+    )
+    assert output.exists()
+    parts = set(zipfile.ZipFile(output).namelist())
+    assert "word/footnotes.xml" in parts
+    assert "word/endnotes.xml" in parts
+    assert any(name.startswith("word/media/") for name in parts)
+    assert result.readiness is not None
+    assert any("目录" in item or "TOC" in item for item in result.readiness.manual_review_items)

@@ -7,6 +7,7 @@ from typing import List
 from models import ContentStructure, FormatProfile, StyleMapping, ValidationIssue, ValidationResult
 
 from .docx_loader import DocxError, list_parts, read_part, validate_docx_can_open, validate_docx_path
+from .readiness import build_delivery_readiness
 from .xml_utils import NS, attr, extract_style_map, has_direct_paragraph_format, parse_xml, paragraph_style_id
 
 
@@ -194,4 +195,5 @@ def validate_output(
         passed=summary["error"] == 0,
         summary=summary,
         issues=issues,
+        readiness=build_delivery_readiness(issues),
     )

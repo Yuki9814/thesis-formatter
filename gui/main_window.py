@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QColor
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.services import format_documents, inspect_documents, validation_result_for_error
-from core.report_generator import write_validation_report
+from core.report_generator import write_delivery_checklist, write_validation_report
 from gui.file_drop_widget import FileDropLineEdit
 from models import StyleMapping
 from models.io import load_model, model_to_json, write_model
@@ -45,11 +45,11 @@ class MainWindow(QMainWindow):
     def _build_ui(self) -> None:
         self.tabs = QTabWidget()
         self.setCentralWidget(self.tabs)
-        self.tabs.addTab(self._files_tab(), "文件")
-        self.tabs.addTab(self._inspect_tab(), "检查")
-        self.tabs.addTab(self._mapping_tab(), "映射")
-        self.tabs.addTab(self._run_tab(), "执行")
-        self.tabs.addTab(self._report_tab(), "报告")
+        self.tabs.addTab(self._files_tab(), "1 选择文件")
+        self.tabs.addTab(self._inspect_tab(), "2 模板体检")
+        self.tabs.addTab(self._mapping_tab(), "3 映射确认")
+        self.tabs.addTab(self._run_tab(), "4 生成文档")
+        self.tabs.addTab(self._report_tab(), "5 交付复核")
         self.statusBar().showMessage("就绪")
 
         open_workdir = QAction("打开工作目录", self)
@@ -77,7 +77,7 @@ class MainWindow(QMainWindow):
         for row, widgets in enumerate(rows):
             for col, widget in enumerate(widgets):
                 layout.addWidget(widget, row, col)
-        run_inspect = QPushButton("运行检查预演")
+        run_inspect = QPushButton("运行模板体检")
         run_inspect.clicked.connect(self.run_inspect)
         layout.addWidget(run_inspect, len(rows), 2)
         return page
@@ -100,8 +100,20 @@ class MainWindow(QMainWindow):
         buttons.addWidget(import_btn)
         buttons.addWidget(export_btn)
         buttons.addStretch()
-        self.mapping_table = QTableWidget(0, 6)
-        self.mapping_table.setHorizontalHeaderLabels(["role", "style_id", "style_name", "confidence", "required", "warning"])
+        self.mapping_table = QTableWidget(0, 9)
+        self.mapping_table.setHorizontalHeaderLabels(
+            [
+                "role",
+                "style_id",
+                "style_name",
+                "confidence",
+                "required",
+                "reason",
+                "content samples",
+                "style samples",
+                "candidate styles",
+            ]
+        )
         layout.addLayout(buttons)
         layout.addWidget(self.mapping_table)
         return page
@@ -117,7 +129,7 @@ class MainWindow(QMainWindow):
         option_layout.addWidget(self.debug_check)
         self.run_log = QTextEdit()
         self.run_log.setReadOnly(True)
-        run_btn = QPushButton("执行格式化")
+        run_btn = QPushButton("生成格式化文档")
         run_btn.clicked.connect(self.run_format)
         layout.addWidget(options)
         layout.addWidget(run_btn)
@@ -131,10 +143,13 @@ class MainWindow(QMainWindow):
         open_output = QPushButton("打开输出 Word")
         open_workdir = QPushButton("打开工作目录")
         open_debug = QPushButton("打开调试目录")
+        open_checklist = QPushButton("打开交付清单")
         open_output.clicked.connect(self.open_output)
         open_workdir.clicked.connect(self.open_workdir)
         open_debug.clicked.connect(self.open_debug_dir)
+        open_checklist.clicked.connect(self.open_delivery_checklist)
         buttons.addWidget(open_output)
+        buttons.addWidget(open_checklist)
         buttons.addWidget(open_workdir)
         buttons.addWidget(open_debug)
         buttons.addStretch()
@@ -196,19 +211,28 @@ class MainWindow(QMainWindow):
         mapping = load_model(path, StyleMapping)
         self.mapping_table.setRowCount(len(mapping.entries))
         for row, entry in enumerate(mapping.entries):
+            candidates = "\n".join(
+                f"{item.style_name} ({item.style_id}, {item.score:.2f})" for item in entry.candidate_styles[:3]
+            )
             values = [
                 entry.role,
                 entry.style_id or "",
                 entry.style_name or "",
                 f"{entry.confidence:.2f}",
                 "true" if entry.required else "false",
-                entry.warning or "",
+                entry.confidence_reason or entry.warning or "",
+                "\n".join(entry.sample_texts),
+                "\n".join(entry.target_style_samples),
+                candidates,
             ]
             for col, value in enumerate(values):
                 item = QTableWidgetItem(value)
-                if col in {0, 3, 4, 5}:
+                if col not in {1, 2}:
                     item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                if entry.required and entry.confidence < mapping.low_confidence_threshold:
+                    item.setBackground(QColor("#fff7ed"))
                 self.mapping_table.setItem(row, col, item)
+        self.mapping_table.resizeColumnsToContents()
 
     def mapping_from_table(self) -> StyleMapping:
         source = self.mapping_path or Path(self.workdir_edit.text()).expanduser() / "mapping.generated.json"
@@ -262,6 +286,9 @@ class MainWindow(QMainWindow):
                 result = validation_result_for_error(output, exc)
                 write_validation_report(report_path, result)
                 write_model(report_path.parent / "validation_result.json", result)
+                if result.readiness:
+                    write_model(report_path.parent / "delivery_checklist.json", result.readiness)
+                write_delivery_checklist(report_path.parent / "delivery_checklist.html", result)
                 raise
             self.run_log.append(model_to_json(result))
             self.report_view.setSource(report_path.as_uri())
@@ -287,6 +314,9 @@ class MainWindow(QMainWindow):
 
     def open_debug_dir(self) -> None:
         self._open_path(Path(self.workdir_edit.text()).expanduser() / "debug")
+
+    def open_delivery_checklist(self) -> None:
+        self._open_path(Path(self.workdir_edit.text()).expanduser() / "delivery_checklist.html")
 
 
 def run_gui() -> int:

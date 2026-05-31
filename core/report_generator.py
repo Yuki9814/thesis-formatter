@@ -4,7 +4,7 @@ import html
 from pathlib import Path
 from typing import Iterable
 
-from models import ContentStructure, FormatProfile, StyleMapping, ValidationIssue, ValidationResult
+from models import ContentStructure, FormatProfile, ReadinessResult, StyleMapping, ValidationIssue, ValidationResult
 
 
 CSS = """
@@ -18,6 +18,11 @@ th { background: #f3f4f6; text-align: left; }
 .info { color: #1d4ed8; font-weight: 700; }
 .ok { color: #047857; font-weight: 700; }
 .muted { color: #6b7280; }
+.summary { border: 1px solid #d1d5db; background: #f9fafb; padding: 16px; margin: 16px 0; }
+.status { font-size: 22px; font-weight: 800; }
+.high { color: #b91c1c; font-weight: 700; }
+.medium { color: #b45309; font-weight: 700; }
+.low { color: #047857; font-weight: 700; }
 """
 
 
@@ -31,22 +36,55 @@ def _safe(value: object) -> str:
     return html.escape(str(value))
 
 
+def _list(items: list[str], empty: str) -> str:
+    if not items:
+        return f"<li>{_safe(empty)}</li>"
+    return "".join(f"<li>{_safe(item)}</li>" for item in items)
+
+
+def _readiness_block(readiness: ReadinessResult | None) -> str:
+    if readiness is None:
+        return ""
+    return f"""
+    <div class="summary">
+      <div class="status {readiness.risk_level}">{_safe(readiness.status)}</div>
+      <p>交付评分：<strong>{readiness.score}/100</strong>；风险等级：<strong class="{readiness.risk_level}">{_safe(readiness.risk_level)}</strong></p>
+      <h2>阻塞项</h2>
+      <ul>{_list(readiness.blocking_items, "没有阻塞项。")}</ul>
+      <h2>人工复核项</h2>
+      <ul>{_list(readiness.manual_review_items, "没有额外人工复核项。")}</ul>
+      <h2>下一步</h2>
+      <ul>{_list(readiness.next_actions, "保留报告，完成最终复核。")}</ul>
+    </div>
+    """
+
+
 def write_inspection_report(
     path: str | Path,
     profile: FormatProfile,
     structure: ContentStructure,
     mapping: StyleMapping,
+    readiness: ReadinessResult | None = None,
 ) -> None:
     quality_class = "ok" if profile.template_quality.reliable_style_source else "warning"
     rows = []
     for entry in mapping.entries:
+        samples = "<br>".join(_safe(item) for item in entry.sample_texts) or "<span class='muted'>No sample</span>"
+        target_samples = "<br>".join(_safe(item) for item in entry.target_style_samples) or "<span class='muted'>No sample</span>"
+        candidates = "<br>".join(
+            f"{_safe(item.style_name)} <span class='muted'>({_safe(item.style_id)}, {item.score:.2f})</span>"
+            for item in entry.candidate_styles[:3]
+        )
         rows.append(
             "<tr>"
             f"<td>{_safe(entry.role)}</td>"
             f"<td>{_safe(entry.style_name)} <span class='muted'>({_safe(entry.style_id)})</span></td>"
             f"<td>{entry.confidence:.2f}</td>"
             f"<td>{_safe(entry.source)}</td>"
-            f"<td>{_safe(entry.warning)}</td>"
+            f"<td>{_safe(entry.confidence_reason or entry.warning)}</td>"
+            f"<td>{samples}</td>"
+            f"<td>{target_samples}</td>"
+            f"<td>{candidates}</td>"
             "</tr>"
         )
     role_rows = "".join(
@@ -55,6 +93,7 @@ def write_inspection_report(
     warnings = "".join(f"<li>{_safe(item)}</li>" for item in profile.template_quality.warnings)
     body = f"""
     <h1>Inspection Report</h1>
+    {_readiness_block(readiness)}
     <p>Template: {_safe(profile.source_path)}</p>
     <p>Content: {_safe(structure.source_path)}</p>
     <h2>Template Quality</h2>
@@ -67,7 +106,7 @@ def write_inspection_report(
     <h2>Detected Content Roles</h2>
     <table><tr><th>Role</th><th>Count</th></tr>{role_rows}</table>
     <h2>Generated Mapping</h2>
-    <table><tr><th>Role</th><th>Target style</th><th>Confidence</th><th>Source</th><th>Warning</th></tr>{''.join(rows)}</table>
+    <table><tr><th>Role</th><th>Target style</th><th>Confidence</th><th>Source</th><th>Reason</th><th>Content samples</th><th>Style samples</th><th>Top candidates</th></tr>{''.join(rows)}</table>
     <h2>Advanced Features</h2>
     <pre>{_safe(structure.advanced_features)}</pre>
     """
@@ -99,6 +138,7 @@ def write_validation_report(path: str | Path, result: ValidationResult) -> None:
     rows = _issue_rows(result.issues)
     body = f"""
     <h1>Validation Report</h1>
+    {_readiness_block(result.readiness)}
     <p>Output: {_safe(result.output_path)}</p>
     <p class="{status_class}">{status}</p>
     <h2>Summary</h2>
@@ -111,3 +151,45 @@ def write_validation_report(path: str | Path, result: ValidationResult) -> None:
     """
     Path(path).write_text(_page("Validation Report", body), encoding="utf-8")
 
+
+def write_delivery_checklist(path: str | Path, result: ValidationResult) -> None:
+    readiness = result.readiness
+    issues_by_severity = {}
+    for issue in result.issues:
+        issues_by_severity.setdefault(issue.severity, []).append(issue)
+    issue_sections = []
+    for severity in ("error", "warning", "info"):
+        issues = issues_by_severity.get(severity, [])
+        if not issues:
+            continue
+        issue_sections.append(
+            f"<h2>{_safe(severity)}</h2><table>"
+            "<tr><th>Code</th><th>Paragraph</th><th>Text preview</th><th>Message</th><th>Suggested fix</th></tr>"
+            + "".join(
+                "<tr>"
+                f"<td>{_safe(issue.code)}</td>"
+                f"<td>{_safe(issue.paragraph_index)}</td>"
+                f"<td>{_safe(issue.text_preview)}</td>"
+                f"<td>{_safe(issue.message)}</td>"
+                f"<td>{_safe(issue.suggested_fix)}</td>"
+                "</tr>"
+                for issue in issues
+            )
+            + "</table>"
+        )
+    word_checks = [
+        "用 Microsoft Word 打开输出文档，确认没有修复提示。",
+        "更新目录、页码、交叉引用和其他域。",
+        "检查封面、目录、正文首页、参考文献、附录的分页。",
+        "逐处检查图片、表格、公式、脚注、尾注和页眉页脚。",
+        "保存一份最终版，再导出 PDF 作为交付稿。",
+    ]
+    body = f"""
+    <h1>交付检查清单</h1>
+    {_readiness_block(readiness)}
+    <h2>Word 内复核</h2>
+    <ul>{_list(word_checks, "暂无复核项。")}</ul>
+    <h2>问题分组</h2>
+    {''.join(issue_sections) or '<p class="ok">没有报告问题。</p>'}
+    """
+    Path(path).write_text(_page("交付检查清单", body), encoding="utf-8")

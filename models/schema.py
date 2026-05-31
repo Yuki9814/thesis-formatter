@@ -98,6 +98,14 @@ class ContentStructure(BaseModel):
     advanced_features: Dict[str, Any] = Field(default_factory=dict)
 
 
+class StyleCandidate(BaseModel):
+    style_id: str
+    style_name: str
+    score: float = 0.0
+    sample_texts: List[str] = Field(default_factory=list)
+    reason: Optional[str] = None
+
+
 class MappingEntry(BaseModel):
     role: str = Field(..., min_length=1)
     style_id: Optional[str] = None
@@ -106,6 +114,10 @@ class MappingEntry(BaseModel):
     source: str = "generated"
     required: bool = False
     warning: Optional[str] = None
+    sample_texts: List[str] = Field(default_factory=list)
+    target_style_samples: List[str] = Field(default_factory=list)
+    confidence_reason: Optional[str] = None
+    candidate_styles: List["StyleCandidate"] = Field(default_factory=list)
 
     @field_validator("confidence")
     @classmethod
@@ -123,6 +135,31 @@ class StyleMapping(BaseModel):
 
     def by_role(self) -> Dict[str, MappingEntry]:
         return {entry.role: entry for entry in self.entries}
+
+
+class ReadinessResult(BaseModel):
+    status: str = "需复核"
+    score: int = 0
+    risk_level: str = "high"
+    blocking_items: List[str] = Field(default_factory=list)
+    manual_review_items: List[str] = Field(default_factory=list)
+    next_actions: List[str] = Field(default_factory=list)
+    generated_at: str = Field(default_factory=now_iso)
+    source_stage: str = "inspection"
+
+
+class DoctorCheck(BaseModel):
+    name: str
+    status: str
+    message: str
+    suggested_fix: Optional[str] = None
+
+
+class DoctorResult(BaseModel):
+    passed: bool = False
+    generated_at: str = Field(default_factory=now_iso)
+    summary: Dict[str, int] = Field(default_factory=dict)
+    checks: List[DoctorCheck] = Field(default_factory=list)
 
 
 class ValidationIssue(BaseModel):
@@ -145,4 +182,4 @@ class ValidationResult(BaseModel):
     passed: bool = False
     summary: Dict[str, int] = Field(default_factory=dict)
     issues: List[ValidationIssue] = Field(default_factory=list)
-
+    readiness: Optional[ReadinessResult] = None

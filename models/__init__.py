@@ -1,10 +1,14 @@
 from .schema import (
     ContentStructure,
+    DoctorCheck,
+    DoctorResult,
     FormatProfile,
     MappingEntry,
     ParagraphBlock,
     RFonts,
+    ReadinessResult,
     SectionProfile,
+    StyleCandidate,
     StyleMapping,
     StyleProfile,
     TemplateQuality,
@@ -14,15 +18,18 @@ from .schema import (
 
 __all__ = [
     "ContentStructure",
+    "DoctorCheck",
+    "DoctorResult",
     "FormatProfile",
     "MappingEntry",
     "ParagraphBlock",
     "RFonts",
+    "ReadinessResult",
     "SectionProfile",
+    "StyleCandidate",
     "StyleMapping",
     "StyleProfile",
     "TemplateQuality",
     "ValidationIssue",
     "ValidationResult",
 ]
-
