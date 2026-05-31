@@ -1,0 +1,30 @@
+# MVP behavior:
+# - style_map is active and overrides automatic role -> style matching.
+# - page and formatting are documented reserved fields in this MVP. Current
+#   formatting still derives page setup from the Word template/reference and
+#   uses conservative cleanup defaults.
+
+page:
+  size: A4
+  margin:
+    top_cm: 2.5
+    bottom_cm: 2.5
+    left_cm: 3.0
+    right_cm: 2.5
+
+style_map:
+  heading_1: "论文一级标题"
+  heading_2: "论文二级标题"
+  heading_3: "论文三级标题"
+  body: "正文"
+  abstract: "摘要正文"
+  keywords: "关键词"
+  figure_caption: "图题"
+  table_caption: "表题"
+  reference_heading: "参考文献标题"
+  reference_item: "参考文献正文"
+
+formatting:
+  normalize_paragraph_direct_formatting: true
+  preserve_character_direct_formatting: true
+

@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+workdir/
+debug/
+output/*
+!output/.gitkeep
+examples/*.docx
+validation_report.html
+validation_result.json
+inspection_report.html
+format_profile.json
+content_structure.json
+mapping.generated.json
+mapping.gui.json
+*.tmp.docx
