@@ -56,6 +56,7 @@ def main() -> int:
             "workdir/output.docx",
             "--report",
             "workdir/validation_report.html",
+            "--force",
         ]
     )
     print("Smoke test completed. Review workdir/output.docx and workdir/validation_report.html.")

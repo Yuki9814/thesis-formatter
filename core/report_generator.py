@@ -59,6 +59,21 @@ def _readiness_block(readiness: ReadinessResult | None) -> str:
     """
 
 
+def _security_rows(findings) -> str:
+    rows = []
+    for finding in findings:
+        rows.append(
+            "<tr>"
+            f"<td class='{_safe(finding.severity)}'>{_safe(finding.severity)}</td>"
+            f"<td>{_safe(finding.code)}</td>"
+            f"<td>{_safe(finding.part)}</td>"
+            f"<td>{_safe(finding.message)}</td>"
+            f"<td>{_safe(finding.suggested_fix)}</td>"
+            "</tr>"
+        )
+    return "".join(rows)
+
+
 def write_inspection_report(
     path: str | Path,
     profile: FormatProfile,
@@ -91,6 +106,7 @@ def write_inspection_report(
         f"<tr><td>{_safe(role)}</td><td>{count}</td></tr>" for role, count in sorted(structure.role_counts.items())
     )
     warnings = "".join(f"<li>{_safe(item)}</li>" for item in profile.template_quality.warnings)
+    security_rows = _security_rows([*profile.security_findings, *structure.security_findings])
     body = f"""
     <h1>Inspection Report</h1>
     {_readiness_block(readiness)}
@@ -109,6 +125,11 @@ def write_inspection_report(
     <table><tr><th>Role</th><th>Target style</th><th>Confidence</th><th>Source</th><th>Reason</th><th>Content samples</th><th>Style samples</th><th>Top candidates</th></tr>{''.join(rows)}</table>
     <h2>Advanced Features</h2>
     <pre>{_safe(structure.advanced_features)}</pre>
+    <h2>Security Findings</h2>
+    <table>
+      <tr><th>Severity</th><th>Code</th><th>Part</th><th>Message</th><th>Suggested fix</th></tr>
+      {security_rows or '<tr><td colspan="5">No security findings.</td></tr>'}
+    </table>
     """
     Path(path).write_text(_page("Inspection Report", body), encoding="utf-8")
 

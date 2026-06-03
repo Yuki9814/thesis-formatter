@@ -13,7 +13,7 @@ from models import ContentStructure, FormatProfile, StyleMapping
 
 from .docx_loader import (
     DocxError,
-    assert_output_not_input,
+    assert_safe_output_path,
     list_parts,
     read_part,
     validate_docx_can_open,
@@ -148,11 +148,11 @@ def format_docx(
     profile: Optional[FormatProfile] = None,
     strict: bool = False,
     debug_dir: Optional[str | Path] = None,
+    force: bool = False,
 ) -> Path:
     template = validate_docx_path(template_path)
     content = validate_docx_path(content_path)
-    output = Path(output_path)
-    assert_output_not_input(output, [template, content])
+    output = assert_safe_output_path(output_path, [template, content], force=force)
 
     policy_issues = mapping_policy_issues(mapping, strict=strict)
     if policy_issues:

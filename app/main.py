@@ -5,7 +5,14 @@ import json
 import sys
 from pathlib import Path
 
-from app.services import doctor_check, format_documents, inspect_documents, validation_result_for_error
+from app.services import (
+    doctor_check,
+    format_documents,
+    inspect_documents,
+    public_error_message,
+    validation_result_for_error,
+    write_debug_error,
+)
 from core.docx_loader import DocxError
 from core.formatter_engine import MappingConsistencyError, MappingPolicyError
 from core.report_generator import write_delivery_checklist, write_validation_report
@@ -27,7 +34,7 @@ def _inspect(args: argparse.Namespace) -> int:
     try:
         inspect_documents(args.template, args.content, args.out_dir, rules_path=args.rules)
     except Exception as exc:
-        print(f"Inspection failed: {exc}", file=sys.stderr)
+        print(f"Inspection failed: {public_error_message(exc)}", file=sys.stderr)
         return EXIT_INPUT_OR_FILE_ERROR if _is_input_error(exc) else EXIT_INTERNAL_ERROR
     print(f"Inspection artifacts written to: {Path(args.out_dir).resolve()}")
     return EXIT_SUCCESS
@@ -43,8 +50,10 @@ def _format(args: argparse.Namespace) -> int:
             report_path=args.report,
             strict=args.strict,
             debug_dir=args.debug_dir,
+            force=args.force,
         )
     except Exception as exc:
+        write_debug_error(args.debug_dir, exc)
         result = validation_result_for_error(args.out, exc)
         report = Path(args.report)
         report.parent.mkdir(parents=True, exist_ok=True)
@@ -53,8 +62,8 @@ def _format(args: argparse.Namespace) -> int:
         if result.readiness:
             write_model(report.parent / "delivery_checklist.json", result.readiness)
         write_delivery_checklist(report.parent / "delivery_checklist.html", result)
-        print(f"Formatting failed: {exc}", file=sys.stderr)
-        print(f"Failure report written to: {Path(args.report).resolve()}", file=sys.stderr)
+        print(f"Formatting failed: {public_error_message(exc)}", file=sys.stderr)
+        print(f"Failure report written to: {Path(args.report).name}", file=sys.stderr)
         if isinstance(exc, (MappingPolicyError, MappingConsistencyError)):
             return EXIT_VALIDATION_OR_MAPPING_FAILURE
         if _is_input_error(exc):
@@ -105,6 +114,7 @@ def build_parser() -> argparse.ArgumentParser:
     format_parser.add_argument("--report", required=True)
     format_parser.add_argument("--strict", action="store_true")
     format_parser.add_argument("--debug-dir")
+    format_parser.add_argument("--force", action="store_true")
     format_parser.set_defaults(func=_format)
 
     doctor_parser = sub.add_parser("doctor", help="Preflight dependencies, inputs, and output location.")

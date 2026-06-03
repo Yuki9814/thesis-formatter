@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import Iterable
 
-from models import ContentStructure, FormatProfile, ReadinessResult, StyleMapping, ValidationIssue
+from models import ContentStructure, FormatProfile, ReadinessResult, SecurityFinding, StyleMapping, ValidationIssue
 
 
 ADVANCED_REVIEW_MESSAGES = {
@@ -66,6 +66,14 @@ def _template_reviews(profile: FormatProfile) -> list[str]:
     return reviews
 
 
+def _security_blockers(findings: Iterable[SecurityFinding]) -> list[str]:
+    return [f"{finding.code}: {finding.message}" for finding in findings if finding.severity == "error"]
+
+
+def _security_reviews(findings: Iterable[SecurityFinding]) -> list[str]:
+    return [f"{finding.code}: {finding.message}" for finding in findings if finding.severity != "error"]
+
+
 def _status(score: int, blocking_items: list[str], manual_review_items: list[str]) -> tuple[str, str]:
     if blocking_items or score < 60:
         return "不建议交付", "high"
@@ -104,9 +112,15 @@ def build_inspection_readiness(
     structure: ContentStructure,
     mapping: StyleMapping,
 ) -> ReadinessResult:
-    blocking_items = _dedupe(_mapping_blockers(mapping))
+    security_findings = [*profile.security_findings, *structure.security_findings]
+    blocking_items = _dedupe([*_mapping_blockers(mapping), *_security_blockers(security_findings)])
     manual_review_items = _dedupe(
-        [*_mapping_reviews(mapping), *_template_reviews(profile), *_content_reviews(structure)]
+        [
+            *_mapping_reviews(mapping),
+            *_template_reviews(profile),
+            *_content_reviews(structure),
+            *_security_reviews(security_findings),
+        ]
     )
     score = _score(blocking_items, manual_review_items)
     status, risk_level = _status(score, blocking_items, manual_review_items)

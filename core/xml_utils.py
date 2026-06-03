@@ -5,6 +5,8 @@ from typing import Iterable, Optional
 
 from lxml import etree
 
+from .docx_loader import DocxError
+
 NS = {
     "w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
     "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
@@ -13,6 +15,8 @@ NS = {
     "rel": "http://schemas.openxmlformats.org/package/2006/relationships",
 }
 
+XML_PARSER = etree.XMLParser(resolve_entities=False, no_network=True, huge_tree=False)
+
 
 def qn(tag: str) -> str:
     prefix, local = tag.split(":", 1)
@@ -20,7 +24,12 @@ def qn(tag: str) -> str:
 
 
 def parse_xml(data: bytes) -> etree._Element:
-    return etree.fromstring(data)
+    if b"<!DOCTYPE" in data[:2048].upper() or b"<!ENTITY" in data[:4096].upper():
+        raise DocxError("输入 .docx 包含不受支持的 XML 声明。")
+    try:
+        return etree.fromstring(data, parser=XML_PARSER)
+    except etree.XMLSyntaxError as exc:
+        raise DocxError("输入 .docx 包含无法安全解析的 XML。") from exc
 
 
 def to_xml(root: etree._Element) -> bytes:
@@ -121,4 +130,3 @@ def copy_or_replace_child_by_attr(
         else:
             target_parent.append(new_child)
         existing[key] = new_child
-

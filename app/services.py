@@ -1,21 +1,75 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import sys
 from pathlib import Path
 from typing import Optional
 
 from core.content_analyzer import analyze_content
-from core.docx_loader import validate_docx_path
+from core.docx_loader import DocxError, validate_docx_path
 from core.format_extractor import extract_format_profile
 from core.formatter_engine import format_docx
+from core.ooxml_security import raise_for_blocking_findings, scan_docx_security
 from core.readiness import build_inspection_readiness, readiness_for_failure
 from core.report_generator import write_delivery_checklist, write_inspection_report, write_validation_report
 from core.style_mapper import build_style_mapping
 from core.validator import validate_output
 from models import ContentStructure, DoctorCheck, DoctorResult, FormatProfile, StyleMapping, ValidationIssue, ValidationResult
 from models.io import load_model, write_model
+from pydantic import ValidationError
+
+
+def public_error_for(exc: Exception) -> tuple[str, str]:
+    if isinstance(exc, DocxError):
+        return "input.docx", str(exc)
+    if isinstance(exc, FileNotFoundError):
+        return "input.file_missing", "输入文件或规则文件不存在。"
+    if isinstance(exc, json.JSONDecodeError):
+        return "mapping.invalid_json", "映射文件不是有效的 JSON。"
+    if isinstance(exc, ValidationError):
+        return "mapping.invalid_schema", "映射文件结构不符合要求。"
+    return "format.failed", "处理失败，请检查输入文件、映射和调试报告。"
+
+
+def public_error_message(exc: Exception) -> str:
+    code, message = public_error_for(exc)
+    return f"[{code}] {message}"
+
+
+def _safe_output_label(path: str | Path) -> str:
+    return Path(path).name or "output.docx"
+
+
+def _relative_to(child: Path, parent: Path) -> bool:
+    try:
+        child.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
+def _validate_report_and_debug_paths(report_path: str | Path, debug_dir: Optional[str | Path]) -> None:
+    report = Path(report_path).expanduser()
+    if report.suffix.lower() != ".html":
+        raise DocxError("报告路径必须是 .html 文件。")
+    report_root = report.parent.resolve(strict=False)
+    if debug_dir is None:
+        return
+    debug = Path(debug_dir).expanduser()
+    if debug.exists() and debug.is_symlink():
+        raise DocxError("调试目录不能是符号链接。")
+    if not _relative_to(debug.resolve(strict=False), report_root):
+        raise DocxError("调试目录必须位于报告目录内。")
+
+
+def write_debug_error(debug_dir: Optional[str | Path], exc: Exception) -> None:
+    if debug_dir is None:
+        return
+    root = Path(debug_dir).expanduser()
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "failure.txt").write_text(f"{type(exc).__name__}: {exc}\n", encoding="utf-8")
 
 
 def inspect_documents(
@@ -26,8 +80,13 @@ def inspect_documents(
 ) -> tuple[FormatProfile, ContentStructure, StyleMapping]:
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
+    template_findings = scan_docx_security(template_path, "template")
+    content_findings = scan_docx_security(content_path, "content")
+    raise_for_blocking_findings([*template_findings, *content_findings])
     profile = extract_format_profile(template_path)
     structure = analyze_content(content_path)
+    profile.security_findings = template_findings
+    structure.security_findings = content_findings
     mapping = build_style_mapping(profile, structure, rules_path=rules_path)
     readiness = build_inspection_readiness(profile, structure, mapping)
     write_model(out / "format_profile.json", profile)
@@ -46,9 +105,16 @@ def format_documents(
     report_path: str | Path,
     strict: bool = False,
     debug_dir: Optional[str | Path] = None,
+    force: bool = False,
 ) -> ValidationResult:
+    _validate_report_and_debug_paths(report_path, debug_dir)
+    template_findings = scan_docx_security(template_path, "template")
+    content_findings = scan_docx_security(content_path, "content")
+    raise_for_blocking_findings([*template_findings, *content_findings])
     profile = extract_format_profile(template_path)
     structure = analyze_content(content_path)
+    profile.security_findings = template_findings
+    structure.security_findings = content_findings
     mapping = load_model(mapping_path, StyleMapping)
     output = format_docx(
         template_path=template_path,
@@ -59,8 +125,10 @@ def format_documents(
         profile=profile,
         strict=strict,
         debug_dir=debug_dir,
+        force=force,
     )
     result = validate_output(output, profile, structure, mapping)
+    result.security_findings = [*template_findings, *content_findings]
     report = Path(report_path)
     report.parent.mkdir(parents=True, exist_ok=True)
     write_validation_report(report, result)
@@ -72,15 +140,15 @@ def format_documents(
 
 
 def validation_result_for_error(output_path: str | Path, exc: Exception) -> ValidationResult:
-    message = f"{type(exc).__name__}: {exc}"
+    code, message = public_error_for(exc)
     return ValidationResult(
-        output_path=str(output_path),
+        output_path=_safe_output_label(output_path),
         passed=False,
         summary={"error": 1, "warning": 0, "info": 0},
         issues=[
             ValidationIssue(
                 severity="error",
-                code="format.failed",
+                code=code,
                 message=message,
                 suggested_fix="Review mapping, input files, and debug artifacts.",
             )
@@ -111,8 +179,17 @@ def _docx_check(label: str, path: str | Path | None) -> DoctorCheck:
         return _check(label, "warning", f"{label} path was not provided.", "Pass the file path when checking a real run.")
     try:
         resolved = validate_docx_path(path)
+        findings = scan_docx_security(resolved, label)
     except Exception as exc:
-        return _check(label, "error", str(exc), "Save the file as a valid .docx and run doctor again.")
+        return _check(label, "error", public_error_message(exc), "Save the file as a valid .docx and run doctor again.")
+    blocking = [finding for finding in findings if finding.severity == "error"]
+    warnings = [finding for finding in findings if finding.severity != "error"]
+    if blocking:
+        codes = ", ".join(sorted({finding.code for finding in blocking}))
+        return _check(label, "error", f"Security check failed: {codes}", "Clean the document in Microsoft Word and retry.")
+    if warnings:
+        codes = ", ".join(sorted({finding.code for finding in warnings}))
+        return _check(label, "warning", f"Security review needed: {codes}", "Review links and embedded objects before delivery.")
     return _check(label, "pass", f"Valid .docx: {resolved}")
 
 

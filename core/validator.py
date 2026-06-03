@@ -110,6 +110,17 @@ def validate_output(
             )
         )
 
+    for finding in [*profile.security_findings, *structure.security_findings]:
+        issues.append(
+            ValidationIssue(
+                severity=finding.severity,
+                code=finding.code,
+                message=finding.message,
+                text_preview=finding.part,
+                suggested_fix=finding.suggested_fix or "Review document security findings before delivery.",
+            )
+        )
+
     for entry in mapping.entries:
         if entry.required and not entry.style_id:
             issues.append(
@@ -196,4 +207,5 @@ def validate_output(
         summary=summary,
         issues=issues,
         readiness=build_delivery_readiness(issues),
+        security_findings=[*profile.security_findings, *structure.security_findings],
     )

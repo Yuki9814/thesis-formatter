@@ -66,6 +66,14 @@ class TemplateQuality(BaseModel):
     warnings: List[str] = Field(default_factory=list)
 
 
+class SecurityFinding(BaseModel):
+    severity: str
+    code: str
+    part: Optional[str] = None
+    message: str
+    suggested_fix: Optional[str] = None
+
+
 class FormatProfile(BaseModel):
     source_path: str
     extracted_at: str = Field(default_factory=now_iso)
@@ -76,6 +84,7 @@ class FormatProfile(BaseModel):
     header_footer_parts: List[str] = Field(default_factory=list)
     advanced_features: Dict[str, Any] = Field(default_factory=dict)
     template_quality: TemplateQuality = Field(default_factory=TemplateQuality)
+    security_findings: List[SecurityFinding] = Field(default_factory=list)
 
 
 class ParagraphBlock(BaseModel):
@@ -96,6 +105,7 @@ class ContentStructure(BaseModel):
     blocks: List[ParagraphBlock] = Field(default_factory=list)
     role_counts: Dict[str, int] = Field(default_factory=dict)
     advanced_features: Dict[str, Any] = Field(default_factory=dict)
+    security_findings: List[SecurityFinding] = Field(default_factory=list)
 
 
 class StyleCandidate(BaseModel):
@@ -183,3 +193,4 @@ class ValidationResult(BaseModel):
     summary: Dict[str, int] = Field(default_factory=dict)
     issues: List[ValidationIssue] = Field(default_factory=list)
     readiness: Optional[ReadinessResult] = None
+    security_findings: List[SecurityFinding] = Field(default_factory=list)

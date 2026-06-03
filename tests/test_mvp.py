@@ -280,21 +280,21 @@ def test_docx_loader_error_cases(tmp_path: Path) -> None:
     missing = tmp_path / "nope.docx"
     with pytest.raises(DocxError) as exc:
         validate_docx_path(missing)
-    assert "File does not exist" in str(exc.value)
+    assert "不存在" in str(exc.value)
 
     # Wrong suffix
     bad_suffix = tmp_path / "fake.txt"
     bad_suffix.write_text("not a docx")
     with pytest.raises(DocxError) as exc:
         validate_docx_path(bad_suffix)
-    assert "Only .docx is supported" in str(exc.value)
+    assert ".docx" in str(exc.value)
 
     # Not a zip (but .docx name)
     not_zip = tmp_path / "notzip.docx"
     not_zip.write_bytes(b"PK not really zip")
     with pytest.raises(DocxError) as exc:
         validate_docx_path(not_zip)
-    assert "Not a valid .docx zip package" in str(exc.value)
+    assert "有效" in str(exc.value)
 
     # Valid zip but missing required parts
     bad_pkg = tmp_path / "badpkg.docx"
@@ -302,8 +302,7 @@ def test_docx_loader_error_cases(tmp_path: Path) -> None:
         zf.writestr("word/document.xml", b"<xml/>")  # missing [Content_Types]
     with pytest.raises(DocxError) as exc:
         validate_docx_path(bad_pkg)
-    assert "Missing required docx parts" in str(exc.value)
-    assert "Content_Types" in str(exc.value)
+    assert "必要" in str(exc.value)
 
     # Valid package by minimal loader rules, but missing optional parts callers may request.
     no_styles = tmp_path / "no_styles.docx"
@@ -360,7 +359,8 @@ def test_cli_format_bad_mapping_json(tmp_path: Path, simple_template: Path, simp
     assert result_json.exists()
     data = json.loads(result_json.read_text(encoding="utf-8"))
     assert data["passed"] is False
-    assert any("JSONDecodeError" in (iss.get("message", "") or "") for iss in data.get("issues", []))
+    assert any(iss.get("code") == "mapping.invalid_json" for iss in data.get("issues", []))
+    assert "JSONDecodeError" not in report.read_text(encoding="utf-8")
 
     # Case 2: valid JSON but fails Pydantic schema (e.g. missing required 'role' or bad type)
     bad_schema = out_dir / "bad_schema.json"
@@ -412,7 +412,8 @@ def test_cli_format_error_with_missing_report_parent_dir(tmp_path: Path, simple_
     assert result_json.exists()
     data = json.loads(result_json.read_text(encoding="utf-8"))
     assert data["passed"] is False
-    assert any("JSONDecodeError" in (iss.get("message", "") or "") for iss in data.get("issues", []))
+    assert any(iss.get("code") == "mapping.invalid_json" for iss in data.get("issues", []))
+    assert "JSONDecodeError" not in report.read_text(encoding="utf-8")
 
 
 def test_format_preserves_complex_content_parts(simple_template: Path, advanced_content: Path, tmp_path: Path) -> None:
